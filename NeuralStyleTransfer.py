@@ -119,8 +119,8 @@ class GramMSELoss(nn.Module):
 
 def compute_targets(vgg, style_image, content_image):
     #compute optimization targets
-    style_targets = [GramMatrix()(A).detach() for A in vgg(style_image, style_layers)]
-    content_targets = [A.detach() for A in vgg(content_image, content_layers)]
+    style_targets = [GramMatrix()(A.float()).detach() for A in vgg(style_image, style_layers)]
+    content_targets = [A.float().detach() for A in vgg(content_image, content_layers)]
     return style_targets + content_targets
 
 #get network
@@ -149,12 +149,13 @@ def style(model, style_image, content_image, iterations):
     style_image = prep(style_image)
     content_image = prep(content_image)
     targets = compute_targets(model, style_image,  content_image)
-    optimizer = optim.LBFGS([content_image], args.lr)
-        
+    # optimizer = optim.LBFGS([content_image], args.lr)
+    optimizer = optim.Adam([content_image],lr=args.lr,eps=1e-04)
+    
     def closure():
         optimizer.zero_grad()
         out = model(content_image, loss_layers)
-        layer_losses = [weights[a] * loss_fns[a](A, targets[a]) for a,A in enumerate(out)]
+        layer_losses = [weights[a] * loss_fns[a](A.float(), targets[a]) for a,A in enumerate(out)]
         loss = sum(layer_losses)
         loss.backward()
         n_iter[0]+=1
@@ -164,8 +165,7 @@ def style(model, style_image, content_image, iterations):
         return loss
     while n_iter[0] <= iterations:
         optimizer.step(closure)
-    return postp(content_image.data[0].cpu()
-                 .squeeze())
+    return postp(content_image.data[0].float().cpu().squeeze())
 
 # Use high quality filter for upsample
 sampler = Image.BICUBIC
