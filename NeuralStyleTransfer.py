@@ -132,6 +132,7 @@ def load_network():
             'vgg19': Vgg19(),
         }[x]
 
+  #  vgg = nn.DataParallel(net(args.model_name))
     vgg = net(args.model_name)
     vgg.load_state_dict(torch.load(args.model_dir + args.model_name + '.pth'))
     for param in vgg.parameters():
