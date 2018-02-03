@@ -5,6 +5,9 @@ from PIL import Image
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
+torch.backends.cudnn.enabled = True
+torch.backends.cudnn.benchmark = True
+
 import torch.nn.functional as F
 from torch import optim
 
@@ -13,7 +16,6 @@ from torchvision import transforms
 
 from collections import OrderedDict
 import argparse
-
 from vgg11 import Vgg11
 from vgg16 import Vgg16
 from vgg19 import Vgg19
@@ -38,8 +40,6 @@ def create_parser():
     arg_parser = argparse.ArgumentParser(description="parser for neural-style")
     arg_parser.add_argument("--iterations", type=int, default=200,
                                   help="number of iterations, default is 2")
-    arg_parser.add_argument("--batch-size", type=int, default=1,
-                                  help="batch size for training, default is 1")
     arg_parser.add_argument("--style-image", type=str, required=True,
                             help="style-image")
     arg_parser.add_argument("--content-image", type=str, required=True,
@@ -64,7 +64,7 @@ def create_parser():
                                   help="learning rate, default is 0.5")
     arg_parser.add_argument("--log-interval", type=int, default=50,
                                   help="number of iterations after which the training loss is logged, default is 50")
-    arg_parser.add_argument("--save-interval", type=int, default=100,
+    arg_parser.add_argument("--save-interval", type=int, default=50,
                                   help="number of iterations after which the image  is saved, default is 100")
     arg_parser.add_argument("--half", action='store_true',
                             help="if set, use fp16 (on gpu)")
@@ -166,6 +166,9 @@ def style(model, style_image, content_image, iterations):
         return loss
     while n_iter[0] <= iterations:
         optimizer.step(closure)
+        if n_iter[0]%args.save_interval == 0 and n_iter[0] > 0:
+            postp(content_image.data[0].float().cpu().squeeze()).save(args.output_image+'-i' + str(n_iter[0]), format='JPEG', subsampling=0, quality=60)
+
     return postp(content_image.data[0].float().cpu().squeeze())
 
 # Use high quality filter for upsample
@@ -189,7 +192,7 @@ def large_side(img, size):
 def pyramid_step(model, orig_style_image, content_image, step):
     global next_style_size, next_content_size
     step_decay = args.pyramid_levels-step+1
-    step_iterations = int(float(args.iterations)/step_decay)
+    step_iterations = int(float(args.iterations)/(step_decay*step_decay))
     if step == args.pyramid_levels:
         content_image = large_side(content_image, args.image_size)
         style_image = large_side(orig_style_image, args.style_size)
@@ -201,11 +204,11 @@ def pyramid_step(model, orig_style_image, content_image, step):
                                                                             style_image.size[0], style_image.size[1],
                                                                             content_image.size[0], content_image.size[1]))
     content_image = style(model, style_image, content_image, step_iterations)
-
+    scale = 2
     if step > 1:
         # todo: count pyramid level weight 
-        next_content_size = [int(content_image.size[0] * 1.5), int(content_image.size[1] * 1.5)]
-        next_style_size = [int(style_image.size[0] * 1.5), int(style_image.size[1] * 1.5)]
+        next_content_size = [int(content_image.size[0] * scale), int(content_image.size[1] * scale)]
+        next_style_size = [int(style_image.size[0] * scale), int(style_image.size[1] * scale)]
 
         content_image = pyramid_step(model, orig_style_image, content_image, step-1)
     return content_image
@@ -215,6 +218,7 @@ def main():
     global args, cur_image_size, weights
     parser = create_parser()
     args =  parser.parse_args()
+    start_time = time.time()
     
     model = load_network()
     
@@ -241,5 +245,6 @@ def main():
     #display result
     out_img.save(args.output_image, format='JPEG', subsampling=0, quality=100)
     
-
+    print('Total time: %s'%(time.time()-start_time));
+                                                                                        
 main()
