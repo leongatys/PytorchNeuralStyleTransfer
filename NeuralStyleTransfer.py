@@ -1,7 +1,7 @@
 import time
 import os
 from PIL import Image
-
+import gc
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
@@ -20,13 +20,6 @@ from vgg11 import Vgg11
 from vgg16 import Vgg16
 from vgg19 import Vgg19
 
-
-#TODO: parameterize
-style_layers = ['r11','r21','r31','r41', 'r51'] 
-content_layers = ['r42']
-loss_layers = style_layers + content_layers
-
-
 def tensor_save_rgbimage(tensor, filename, cuda=False):
     if cuda:
         img = tensor.clone().cpu().clamp(0, 255).numpy()
@@ -39,7 +32,9 @@ def tensor_save_rgbimage(tensor, filename, cuda=False):
 def create_parser():
     arg_parser = argparse.ArgumentParser(description="parser for neural-style")
     arg_parser.add_argument("--iterations", type=int, default=200,
-                                  help="number of iterations, default is 2")
+                                  help="number of iterations, default is 200")
+    arg_parser.add_argument("--optimizer", type=str, default="LBGFS",
+                            help="optimizer : LBGFS|adam")
     arg_parser.add_argument("--style-image", type=str, required=True,
                             help="style-image")
     arg_parser.add_argument("--content-image", type=str, required=True,
@@ -59,9 +54,14 @@ def create_parser():
     arg_parser.add_argument("--cuda", type=int, required=True, help="set it to 1 for running on GPU, 0 for CPU")
     arg_parser.add_argument("--seed", type=int, default=42, help="random seed for training")
     arg_parser.add_argument("--style-weight", type=float, default=1.0,
-                                  help="weight for style-loss, default is 1.0")
+                            help="weight for style-loss, default is 1.0")
+    arg_parser.add_argument("--pad", type=int, default=2, help="padding, default=2 ")
     arg_parser.add_argument("--lr", type=float, default=0.5,
                                   help="learning rate, default is 0.5")
+    arg_parser.add_argument("--eps", type=float, default=1e-2,
+                                  help="Adam eps, default is 1e-2")
+    arg_parser.add_argument("--beta1", type=float, default=0.9,
+                                  help="Adam beta1, default is 0.9")
     arg_parser.add_argument("--log-interval", type=int, default=50,
                                   help="number of iterations after which the training loss is logged, default is 50")
     arg_parser.add_argument("--save-interval", type=int, default=50,
@@ -119,21 +119,21 @@ class GramMSELoss(nn.Module):
 
 def compute_targets(vgg, style_image, content_image):
     #compute optimization targets
-    style_targets = [GramMatrix()(A.float()).detach() for A in vgg(style_image, style_layers)]
-    content_targets = [A.float().detach() for A in vgg(content_image, content_layers)]
+    style_targets = [GramMatrix()(A.float()).detach() for A in vgg(style_image, vgg.style_layers)]
+    content_targets = [A.float().detach() for A in vgg(content_image, vgg.content_layers)]
     return style_targets + content_targets
 
 #get network
 def load_network():
     def net(x):
         return {
-            'vgg11': Vgg11(),
-            'vgg16': Vgg16(),
-            'vgg19': Vgg19(),
+            'vgg11': Vgg11,
+            'vgg16': Vgg16,
+            'vgg19': Vgg19,
         }[x]
 
   #  vgg = nn.DataParallel(net(args.model_name))
-    vgg = net(args.model_name)
+    vgg = net(args.model_name)(pad=args.pad)
     vgg.load_state_dict(torch.load(args.model_dir + args.model_name + '.pth'))
     for param in vgg.parameters():
         param.requires_grad = False
@@ -150,8 +150,12 @@ def style(model, style_image, content_image, iterations):
     style_image = prep(style_image)
     content_image = prep(content_image)
     targets = compute_targets(model, style_image,  content_image)
-    # optimizer = optim.LBFGS([content_image], args.lr)
-    optimizer = optim.Adam([content_image],lr=args.lr,eps=1e-04)
+    if  args.optimizer == 'adam':
+        optimizer = optim.Adam([content_image], lr=args.lr, eps=args.eps, betas=(args.beta1, 0.999))
+    else:
+        optimizer = optim.LBFGS([content_image], args.lr)
+
+    loss_layers = model.style_layers + model.content_layers
     
     def closure():
         optimizer.zero_grad()
@@ -161,7 +165,7 @@ def style(model, style_image, content_image, iterations):
         loss.backward()
         n_iter[0]+=1
         if n_iter[0]%args.log_interval == 1:
-            print('Iteration: %d, loss: %f time : %s'%(n_iter[0], loss.data[0], time.time()-t0))
+            print('Iteration: %d, loss: %d time : %s'%(n_iter[0], int(loss.data[0]), time.time()-t0))
             print([loss_layers[li] + ': ' +  str(l.data[0]) for li,l in enumerate(layer_losses)]) #loss of each layer
         return loss
     while n_iter[0] <= iterations:
@@ -191,8 +195,10 @@ def large_side(img, size):
 
 def pyramid_step(model, orig_style_image, content_image, step):
     global next_style_size, next_content_size
-    step_decay = args.pyramid_levels-step+1
-    step_iterations = int(float(args.iterations)/(step_decay*step_decay))
+    step_decay = args.pyramid_levels
+    step_iterations = int(float(args.iterations)/(step_decay))
+    scale = 1.6
+        
     if step == args.pyramid_levels:
         content_image = large_side(content_image, args.image_size)
         style_image = large_side(orig_style_image, args.style_size)
@@ -204,9 +210,8 @@ def pyramid_step(model, orig_style_image, content_image, step):
                                                                             style_image.size[0], style_image.size[1],
                                                                             content_image.size[0], content_image.size[1]))
     content_image = style(model, style_image, content_image, step_iterations)
-    scale = 2
+
     if step > 1:
-        # todo: count pyramid level weight 
         next_content_size = [int(content_image.size[0] * scale), int(content_image.size[1] * scale)]
         next_style_size = [int(style_image.size[0] * scale), int(style_image.size[1] * scale)]
 
@@ -227,14 +232,11 @@ def main():
     
     #define layers, loss functions, weights and compute optimization targets
     global loss_fns
-    loss_fns = [GramMSELoss()] * len(style_layers) + [nn.MSELoss()] * len(content_layers)   
+    loss_fns = [GramMSELoss()] * len(model.style_layers) + [nn.MSELoss()] * len(model.content_layers)   
     if torch.cuda.is_available():
         loss_fns = [loss_fn.cuda() for loss_fn in loss_fns]
         
-    #these are good initial weights settings:
-    style_weights = [1e3/n**2 for n in [64,128,256,512,1024]]
-    content_weights = [1e0]
-    weights = style_weights + content_weights
+    weights = model.style_weights + model.content_weights
             
     orig_style_image =  Image.open(args.style_image)
     orig_content_image = Image.open(args.content_image)   

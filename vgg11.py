@@ -4,9 +4,8 @@ import torch.nn.functional as F
 
 #vgg definition that conveniently let's you grab the outputs from any layer
 class Vgg11(nn.Module):
-    def __init__(self, num_classes=1000):
+    def __init__(self, num_classes=1000, pad=2):
         super(Vgg11, self).__init__()
-        pad = 2
         #modules
         self.features = nn.Sequential(
             nn.Conv2d(3, 64, kernel_size=3, padding=pad),
@@ -40,7 +39,13 @@ class Vgg11(nn.Module):
             nn.Dropout(),
             nn.Linear(4096, num_classes),
         )
-        
+        self.style_layers = ['r11','r21','r31','r41', 'r51'] 
+        self.content_layers = ['r42']
+        self.content_weights = [1e0]
+        #these are good initial weights settings:
+        self.style_weights = [1e3/n**2 for n in [64,128,256,512,512]]
+
+
     def forward(self, x, out_keys):
         out = {}
         out['r11'] = self.features[1](self.features[0](x))
