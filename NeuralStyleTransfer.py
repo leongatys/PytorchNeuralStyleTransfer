@@ -17,7 +17,7 @@ from torchvision import transforms
 from collections import OrderedDict
 import argparse
 from vgg11 import Vgg11
-from vgg16 import Vgg16
+from vgg16_4x import Vgg16_4x
 from vgg19 import Vgg19
 from alexnet import Alexnet
 
@@ -129,14 +129,14 @@ def load_network():
     def net(x):
         return {
             'vgg11': Vgg11,
-            'vgg16': Vgg16,
+            'vgg16_4x': Vgg16_4x,
             'vgg19': Vgg19,
             'alexnet' : Alexnet,
         }[x]
 
   #  vgg = nn.DataParallel(net(args.model_name))
-    vgg = net(args.model_name)(pad=args.pad)
-    vgg.load_state_dict(torch.load(args.model_dir + args.model_name + '.pth'))
+    vgg = net(args.model_name)(args.model_dir + args.model_name + '.pth', pad=args.pad)
+
     for param in vgg.parameters():
         param.requires_grad = False
     if args.cuda and torch.cuda.is_available():

@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 class Vgg19(nn.Module):
-    def __init__(self, pool='max', pad=2):
+    def __init__(self, model_path, pool='max', pad=2):
         super(Vgg19, self).__init__()
         #vgg modules
         self.conv1_1 = nn.Conv2d(3, 64, kernel_size=3, padding=pad)
@@ -39,6 +39,7 @@ class Vgg19(nn.Module):
         self.content_weights = [1e0]
         #these are good initial weights settings:
         self.style_weights = [1e3/n**2 for n in [64,128,256,512,512]]
+        self.load_state_dict(torch.load(model_path))
     
     def forward(self, x, out_keys):
         out = {}
