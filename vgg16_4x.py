@@ -4,7 +4,7 @@ import torch.nn.functional as F
 
 #vgg definition that conveniently let's you grab the outputs from any layer
 class Vgg16_4x(nn.Module):
-    def __init__(self, model_path, num_classes=1000, pad=2):
+    def __init__(self, model_path, num_classes=1000, pad=4):
         super(Vgg16_4x, self).__init__()
         #modules
         self.features = nn.Sequential(
