@@ -1,5 +1,6 @@
 import time
 import os
+import os.path as P
 from PIL import Image
 import gc
 import torch
@@ -40,7 +41,7 @@ def create_parser():
                             help="style-image")
     arg_parser.add_argument("--content-image", type=str, required=True,
                             help="path to content image you want to stylize")
-    arg_parser.add_argument("--output-image", type=str, default='out.jpg',
+    arg_parser.add_argument("--out", type=str, default='.',
                             help="path for saving the output image")
     arg_parser.add_argument("--model-dir", type=str, default=os.getcwd() + '/Models/',
                                   help="directory for model, if model is not present in the directory it is downloaded")
@@ -65,7 +66,7 @@ def create_parser():
                                   help="Adam beta1, default is 0.9")
     arg_parser.add_argument("--log-interval", type=int, default=50,
                                   help="number of iterations after which the training loss is logged, default is 50")
-    arg_parser.add_argument("--save-interval", type=int, default=50,
+    arg_parser.add_argument("--save-interval", type=int, default=0,
                                   help="number of iterations after which the image  is saved, default is 100")
     arg_parser.add_argument("--half", action='store_true',
                             help="if set, use fp16 (on gpu)")
@@ -151,7 +152,8 @@ def style(model, style_image, content_image, iterations):
     t0 = time.time()
     style_image = prep(style_image)
     content_image = prep(content_image)
-    targets = compute_targets(model, style_image,  content_image)
+    targets = compute_targets(model, style_image,  content_image)    
+    
     if  args.optimizer == 'adam':
         optimizer = optim.Adam([content_image], lr=args.lr, eps=args.eps, betas=(args.beta1, 0.999))
     else:
@@ -168,12 +170,12 @@ def style(model, style_image, content_image, iterations):
         n_iter[0]+=1
         if n_iter[0]%args.log_interval == 1:
             print('Iteration: %d, loss: %d time : %s'%(n_iter[0], int(loss.data[0]), time.time()-t0))
-            print([loss_layers[li] + ': ' +  str(l.data[0]) for li,l in enumerate(layer_losses)]) #loss of each layer
+#            print([loss_layers[li] + ': ' +  str(l.data[0]) for li,l in enumerate(layer_losses)]) #loss of each layer
         return loss
     while n_iter[0] <= iterations:
         optimizer.step(closure)
-        if n_iter[0]%args.save_interval == 0 and n_iter[0] > 0:
-            postp(content_image.data[0].float().cpu().squeeze()).save(args.output_image+'-i' + str(n_iter[0]), format='JPEG', subsampling=0, quality=60)
+        if args.save_interval > 0 and n_iter[0]%args.save_interval == 0 and n_iter[0] > 0:
+            postp(content_image.data[0].float().cpu().squeeze()).save(outfile+'-i' + str(n_iter[0]), format='JPEG', subsampling=0, quality=60)
 
     return postp(content_image.data[0].float().cpu().squeeze())
 
@@ -238,16 +240,24 @@ def main():
     if torch.cuda.is_available():
         loss_fns = [loss_fn.cuda() for loss_fn in loss_fns]
         
+
+
     weights = model.style_weights + model.content_weights
-            
+
+    global outfile
+    contentbasename, outsuf = P.splitext(P.basename(args.content_image))
+    stylebasename, stylesuf = P.splitext(P.basename(args.style_image))
+    outfile = P.join(args.out, '-'.join((contentbasename, stylebasename, args.model_name, args.optimizer, str(args.lr), str(args.iterations), str(args.pyramid_levels)))+'.jpg')
+
     orig_style_image =  Image.open(args.style_image)
     orig_content_image = Image.open(args.content_image)   
 
     # run scale iteration here
     out_img = pyramid_step(model, orig_style_image, orig_content_image, args.pyramid_levels)  
 
+    
     #display result
-    out_img.save(args.output_image, format='JPEG', subsampling=0, quality=100)
+    out_img.save(outfile, format='JPEG', subsampling=0, quality=100)
     
     print('Total time: %s'%(time.time()-start_time));
                                                                                         
