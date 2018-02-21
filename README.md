@@ -8,6 +8,9 @@ To run the code you need to get the pytorch VGG19-Model from [Simonyan and Zisse
 
 `sh download_models.sh`
 
-Everything else is in the IPythonNotebook `NeuralStyleTransfer.ipynb`
+Examples:
+  python ./NeuralStyleTransfer.py --pyramid-levels 2 --style-image ./Images/dali-brasil.jpg --image-size 720 --style-size 512 --cuda 2 --iterations 200 --lr 1.0 --model-name vgg16_4x --content-image ./Images/bayou-hd.jpg --optimizer adam --eps 1e-4 --beta1 0.9 --half
+
+python ./NeuralStyleTransfer.py --pyramid-levels 2 --style-image ./Images/dali-brasil.jpg --image-size 720 --style-size 512 --cuda 2 --iterations 1000 --lr 1.0 --model-name vgg16_4x --content-image ./Images/bayou-hd.jpg --optimizer adam --eps 1e-4 --beta1 0.9 --half 
 
 Have fun :-)

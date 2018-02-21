@@ -6,6 +6,7 @@ import gc
 import torch
 from torch.autograd import Variable
 import torch.nn as nn
+
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 
@@ -36,7 +37,7 @@ def create_parser():
     arg_parser.add_argument("--iterations", type=int, default=200,
                                   help="number of iterations, default is 200")
     arg_parser.add_argument("--optimizer", type=str, default="LBGFS",
-                            help="optimizer : LBGFS|adam")
+                            help="optimizer : LBGFS|adam|SGD")
     arg_parser.add_argument("--style-image", type=str, required=True,
                             help="style-image")
     arg_parser.add_argument("--content-image", type=str, required=True,
@@ -58,10 +59,10 @@ def create_parser():
     arg_parser.add_argument("--style-weight", type=float, default=1.0,
                             help="weight for style-loss, default is 1.0")
     arg_parser.add_argument("--pad", type=int, default=2, help="padding, default=2 ")
-    arg_parser.add_argument("--lr", type=float, default=0.5,
-                                  help="learning rate, default is 0.5")
-    arg_parser.add_argument("--eps", type=float, default=1e-2,
-                                  help="Adam eps, default is 1e-2")
+    arg_parser.add_argument("--lr", type=float, default=1.0,
+                                  help="learning rate, default is 1.0")
+    arg_parser.add_argument("--eps", type=float, default=1e-4,
+                                  help="Adam eps, default is 1e-4")
     arg_parser.add_argument("--beta1", type=float, default=0.9,
                                   help="Adam beta1, default is 0.9")
     arg_parser.add_argument("--log-interval", type=int, default=50,
@@ -135,7 +136,6 @@ def load_network():
             'alexnet' : Alexnet,
         }[x]
 
-  #  vgg = nn.DataParallel(net(args.model_name))
     vgg = net(args.model_name)(args.model_dir + args.model_name + '.pth', pad=args.pad)
 
     for param in vgg.parameters():
@@ -143,7 +143,7 @@ def load_network():
     if args.cuda and torch.cuda.is_available():
         vgg.cuda()
     if args.half:
-        vgg.half()
+        vgg = vgg.half()
     return vgg
 
 # Run style transfer, complete with pre- and post- processing
@@ -154,8 +154,10 @@ def style(model, style_image, content_image, iterations):
     content_image = prep(content_image)
     targets = compute_targets(model, style_image,  content_image)    
     
-    if  args.optimizer == 'adam':
+    if  args.optimizer.lower() == 'adam':
         optimizer = optim.Adam([content_image], lr=args.lr, eps=args.eps, betas=(args.beta1, 0.999))
+    elif args.optimizer .lower()== 'sgd':
+        optimizer = torch.optim.SGD([content_image], lr=args.lr, momentum=0.99999)
     else:
         optimizer = optim.LBFGS([content_image], args.lr)
 
