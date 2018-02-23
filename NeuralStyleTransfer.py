@@ -20,6 +20,7 @@ from collections import OrderedDict
 import argparse
 from vgg11 import Vgg11
 from vgg16_4x import Vgg16_4x
+from vgg19_8x import Vgg19_8x
 from vgg19 import Vgg19
 from alexnet import Alexnet
 
@@ -133,6 +134,7 @@ def load_network():
             'vgg11': Vgg11,
             'vgg16_4x': Vgg16_4x,
             'vgg19': Vgg19,
+            'vgg19_8x': Vgg19_8x,
             'alexnet' : Alexnet,
         }[x]
 
