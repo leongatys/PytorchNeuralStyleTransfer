@@ -7,6 +7,8 @@ import torch
 from torch.autograd import Variable
 import torch.nn as nn
 
+from fp16_optimizer import FP16_Optimizer
+
 torch.backends.cudnn.enabled = True
 torch.backends.cudnn.benchmark = True
 
@@ -71,6 +73,10 @@ def create_parser():
     arg_parser.add_argument("--save-interval", type=int, default=0,
                                   help="number of iterations after which the image  is saved, default is 100")
     arg_parser.add_argument("--half", action='store_true',
+                            help="if set, use fp16 (on gpu)")
+    arg_parser.add_argument("--static-loss-scale", type=float, default=1.0,
+                                  help="factor used for static loss scaling, ")
+    arg_parser.add_argument("--dynamic-loss-scale", action='store_true',
                             help="if set, use fp16 (on gpu)")
     return arg_parser
 
@@ -163,7 +169,10 @@ def style(model, style_image, content_image, iterations):
     else:
         optimizer = optim.LBFGS([content_image], args.lr)
 
-    optimizer = FP16_Optimizer(optimizer,loss_scale=None,dynamic_scale=False)
+    if args.half:
+        optimizer = FP16_Optimizer(optimizer, 
+                                   scale=args.static_loss_scale, 
+                                   dynamic_scale=args.dynamic_loss_scale)
 
     loss_layers = model.style_layers + model.content_layers
     
@@ -178,11 +187,16 @@ def style(model, style_image, content_image, iterations):
         else:
             loss.backward()
 
+        # print(content_image.grad.data)
+        # print(optimizer.fp32_params[0].grad.data)
+        # quit()
+
         n_iter[0]+=1
         if n_iter[0]%args.log_interval == 1:
             print('Iteration: %d, loss: %d time : %s'%(n_iter[0], int(loss.data[0]), time.time()-t0))
 #            print([loss_layers[li] + ': ' +  str(l.data[0]) for li,l in enumerate(layer_losses)]) #loss of each layer
         return loss
+
     while n_iter[0] <= iterations:
         optimizer.step(closure)
         if args.save_interval > 0 and n_iter[0]%args.save_interval == 0 and n_iter[0] > 0:
