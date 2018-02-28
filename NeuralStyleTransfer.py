@@ -163,6 +163,8 @@ def style(model, style_image, content_image, iterations):
     else:
         optimizer = optim.LBFGS([content_image], args.lr)
 
+    optimizer = FP16_Optimizer(optimizer,loss_scale=None,dynamic_scale=False)
+
     loss_layers = model.style_layers + model.content_layers
     
     def closure():
@@ -170,7 +172,12 @@ def style(model, style_image, content_image, iterations):
         out = model(content_image, loss_layers)
         layer_losses = [weights[a] * loss_fns[a](A.float(), targets[a]) for a,A in enumerate(out)]
         loss = sum(layer_losses)
-        loss.backward()
+
+        if args.half:
+            optimizer.backward(loss)
+        else:
+            loss.backward()
+
         n_iter[0]+=1
         if n_iter[0]%args.log_interval == 1:
             print('Iteration: %d, loss: %d time : %s'%(n_iter[0], int(loss.data[0]), time.time()-t0))
