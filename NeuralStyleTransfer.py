@@ -61,11 +61,23 @@ def create_parser():
     arg_parser.add_argument("--seed", type=int, default=42, help="random seed for training")
     arg_parser.add_argument("--style-weight", type=float, default=1.0,
                             help="weight for style-loss, default is 1.0")
-    arg_parser.add_argument("--pad", type=int, default=2, help="padding, default=2 ")
+    arg_parser.add_argument("--pad", type=int, default=3, help="padding, default=3")
     arg_parser.add_argument("--lr", type=float, default=1.0,
                                   help="learning rate, default is 1.0")
+
+    arg_parser.add_argument("--tolerance-grad", type=float, default=1e-2,
+                                  help="LBFGS termination tolerance on first order optimality, default is 1e-2")
+    arg_parser.add_argument("--tolerance-change", type=float, default=1e-3,
+                                  help="LBFGS termination tolerance on first order optimality, default is 1e-3")
+    arg_parser.add_argument("--history-size", type=int, default=10,
+                           help="LBFGS history size , default is 10")
+    arg_parser.add_argument("--max-iter", type=int, default=20,
+                           help="LBFGS maximal number of iterations per optimization step , default is 20")
+    arg_parser.add_argument("--max-eval", type=int, default=25,
+                           help="LBFGS maximal number of function evaluations per optimization step , default is 25")
+
     arg_parser.add_argument("--eps", type=float, default=1e-4,
-                                  help="Adam eps, default is 1e-4")
+                            help="Adam eps, default is 1e-4")
     arg_parser.add_argument("--beta1", type=float, default=0.9,
                                   help="Adam beta1, default is 0.9")
     arg_parser.add_argument("--log-interval", type=int, default=50,
@@ -82,7 +94,7 @@ def create_parser():
 
 #pre and post processing for images
 
-def prep(img):
+def prep(img, grad=True):
 
     prep_image_fn = transforms.Compose([
         transforms.ToTensor(),
@@ -98,7 +110,7 @@ def prep(img):
         img = img.cuda()
         if args.half:
             img = img.half()
-    return Variable(img, requires_grad=True)
+    return Variable(img, requires_grad=grad)
     
 def postp(tensor): # to clip results in the range [0,1]
     postpa = transforms.Compose([transforms.Lambda(lambda x: x.mul_(1./255)),
@@ -158,23 +170,25 @@ def load_network():
 def style(model, style_image, content_image, iterations):                    
     n_iter=[0]
     t0 = time.time()
-    style_image = prep(style_image)
+    style_image = prep(style_image, False)
     content_image = prep(content_image)
     targets = compute_targets(model, style_image,  content_image)    
-    
+
+    loss_layers = model.style_layers + model.content_layers
+
     if  args.optimizer.lower() == 'adam':
         optimizer = optim.Adam([content_image], lr=args.lr, eps=args.eps, betas=(args.beta1, 0.999))
     elif args.optimizer .lower()== 'sgd':
         optimizer = torch.optim.SGD([content_image], lr=args.lr, momentum=0.99999)
     else:
-        optimizer = optim.LBFGS([content_image], args.lr)
+        optimizer = optim.LBFGS([content_image], lr=args.lr, history_size=args.history_size,
+                                tolerance_grad=args.tolerance_grad, tolerance_change=args.tolerance_change,
+                                max_iter=args.max_iter, max_eval=args.max_eval)
 
     if args.half:
         optimizer = FP16_Optimizer(optimizer, 
                                    scale=args.static_loss_scale, 
                                    dynamic_scale=args.dynamic_loss_scale)
-
-    loss_layers = model.style_layers + model.content_layers
     
     def closure():
         optimizer.zero_grad()
@@ -264,19 +278,24 @@ def main():
     loss_fns = [GramMSELoss()] * len(model.style_layers) + [nn.MSELoss()] * len(model.content_layers)   
     if torch.cuda.is_available():
         loss_fns = [loss_fn.cuda() for loss_fn in loss_fns]
-        
-
 
     weights = model.style_weights + model.content_weights
+
+    orig_style_image =  Image.open(args.style_image)
+    orig_content_image = Image.open(args.content_image)   
+    
+    optimizer_param_string=':%s:%.2f'%(args.optimizer, args.lr)
+    
+    if  args.optimizer.lower() == 'adam':
+        optimizer_param_string += ':%.2f:%.2f'%(args.eps, args.beta1)
+    else:
+        optimizer_param_string += ':%d:%d:%d:%.2f:%.2f'%(args.history_size, args.max_iter, args.max_eval, args.tolerance_grad, args.tolerance_change)
 
     global outfile
     contentbasename, outsuf = P.splitext(P.basename(args.content_image))
     stylebasename, stylesuf = P.splitext(P.basename(args.style_image))
-    outfile = P.join(args.out, '-'.join((contentbasename, stylebasename, args.model_name, args.optimizer, str(args.lr), str(args.iterations), str(args.pyramid_levels)))+'.jpg')
-
-    orig_style_image =  Image.open(args.style_image)
-    orig_content_image = Image.open(args.content_image)   
-
+    outfile = P.join(args.out, '-'.join((contentbasename, stylebasename, args.model_name, optimizer_param_string, str(args.iterations), str(args.pyramid_levels)))+'.jpg')
+        
     # run scale iteration here
     out_img = pyramid_step(model, orig_style_image, orig_content_image, args.pyramid_levels)  
 

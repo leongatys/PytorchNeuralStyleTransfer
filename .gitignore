@@ -1,2 +1,3 @@
 Models/*
 .ipynb_checkpoints/
+*.pyc
