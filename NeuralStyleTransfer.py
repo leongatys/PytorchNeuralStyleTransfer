@@ -62,8 +62,8 @@ def create_parser():
     arg_parser.add_argument("--style-weight", type=float, default=1.0,
                             help="weight for style-loss, default is 1.0")
     arg_parser.add_argument("--pad", type=int, default=3, help="padding, default=3")
-    arg_parser.add_argument("--lr", type=float, default=1.0,
-                                  help="learning rate, default is 1.0")
+    arg_parser.add_argument("--lr", type=float, default=0.9,
+                                  help="learning rate, default is 0.9")
 
     arg_parser.add_argument("--tolerance-grad", type=float, default=1e-2,
                                   help="LBFGS termination tolerance on first order optimality, default is 1e-2")
